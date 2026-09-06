@@ -1,0 +1,37 @@
+sequenceDiagram
+    actor User
+    participant Client as Browser or CLI
+    participant Upload as Upload API
+    participant DB as PostgreSQL
+    participant S3
+    participant Queue as SQS
+    participant Worker as Stage worker
+
+    User->>Client: Select files and enter metadata
+    Client->>Upload: Register batch and files
+    Upload->>DB: Create idempotent upload records
+    Upload-->>Client: File IDs and upload settings
+
+    loop Small batches of parts
+        Client->>Upload: Request presigned URLs
+        Upload->>S3: Create or inspect multipart upload
+        Upload-->>Client: Presigned part URLs
+        Client->>S3: Upload parts directly
+        Client->>Upload: Report aggregated progress
+    end
+
+    Upload->>S3: Complete multipart upload
+    S3-->>Queue: Object-created event
+
+    loop Processing stages
+        Queue->>Worker: Deliver stage job
+        Worker->>S3: Read original or prior derivative
+        Worker->>S3: Write derivative
+        Worker->>DB: Store output and stage status
+        Worker->>Queue: Enqueue next stage
+    end
+
+    Worker->>DB: Mark file ready or partially enriched
+    Client->>Upload: Resume request after interruption
+    Upload->>S3: List persisted parts
+    Upload-->>Client: Return only missing parts
