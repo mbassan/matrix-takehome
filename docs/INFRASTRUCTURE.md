@@ -6,64 +6,12 @@ The system splits into a **control plane** (small, stateless, scales with users 
 
 ---
 
-## Component map
-
-```mermaid
-flowchart TB
-    subgraph clients [Clients]
-        Browser[Browser client<br/>React + TS]
-        CLI[CLI client<br/>Node + TS]
-    end
-
-    subgraph control [Control plane]
-        UploadAPI[Upload API<br/>Node + Prisma]
-        AppAPI[Application API<br/>Node + Prisma]
-        Outbox[Transactional outbox<br/>Lambda]
-        Relay[Outbox relay]
-        Workers[Pipeline workers<br/>one per stage]
-        Cleanup[Cleanup job<br/>scheduled]
-    end
-
-    subgraph data [Data plane and stores]
-        S3[(S3<br/>originals + derivatives)]
-        PG[(Postgres<br/>pgvector + postgis)]
-        Q[[Queues<br/>SQS or Kafka]]
-    end
-
-    Browser -->|control calls| UploadAPI
-    CLI -->|control calls| UploadAPI
-    Browser -->|browse / search| AppAPI
-
-    Browser -.->|chunks, presigned PUT| S3
-    CLI -.->|chunks, presigned PUT| S3
-
-    UploadAPI --> PG
-    UploadAPI -->|CreateMultipartUpload,<br/>presign, Complete| S3
-    AppAPI --> PG
-    AppAPI -->|presigned GET| S3
-
-    S3 -->|object created event| Q
-    Q --> Outbox
-    Outbox --> PG
-    Relay --> Q
-    Q --> Workers
-    Workers --> PG
-    Workers -->|read original,<br/>write derivatives| S3
-
-    Cleanup --> PG
-    Cleanup -->|ListParts, Complete,<br/>AbortMultipartUpload| S3
-```
-
-Dotted lines are the only paths that carry file bytes.
-
----
-
 ## Inventory
 
 | Component | Technology | Stateful | Scales with |
 | --- | --- | --- | --- |
 | Browser client | React + TypeScript (SPA, not Next.js) | Local only (IndexedDB) | — |
-| CLI client | Node.js + TypeScript, single binary | Local only (state file) | — |
+| CLI client | Go | Local only (state file) | — |
 | Upload API | Node.js + TypeScript + Prisma | No | Control requests/sec, not bytes |
 | Application API | Node.js + TypeScript + Prisma | No | Browse and search traffic |
 | Object storage | S3 (or S3-compatible: MinIO, R2, Ceph) | Yes — the bytes | Total stored bytes |
